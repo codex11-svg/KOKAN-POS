@@ -83,6 +83,7 @@ import { CameraScanner } from "@/components/camera-scanner";
 import { OperationsView } from "@/components/operations-view";
 import { OwnerPinModal } from "@/components/owner-pin-modal";
 import { AccessPortal } from "@/components/access-portal";
+import { KokanMark } from "@/components/kokan-mark";
 import { getSupabaseClient, type AccountAccess } from "@/lib/supabase";
 import type { Session } from "@supabase/supabase-js";
 
@@ -1307,7 +1308,7 @@ export function PosShell() {
   if (!authReady) {
     return (
       <main className="loading-screen">
-        <div className="loading-brand"><span className="brand-mark">k<span>.</span></span><span>kokan<span className="brand-light">pos</span></span></div>
+        <div className="loading-brand"><KokanMark className="brand-mark" /><span>kokan<span className="brand-light">pos</span></span></div>
         <div className="loading-spinner" />
         <p>Checking your account…</p>
         <small>Your store data stays private to your account.</small>
@@ -1332,7 +1333,7 @@ export function PosShell() {
   if (!ready) {
     return (
       <main className="loading-screen">
-        <div className="loading-brand"><span className="brand-mark">k<span>.</span></span><span>kokan<span className="brand-light">pos</span></span></div>
+        <div className="loading-brand"><KokanMark className="brand-mark" /><span>kokan<span className="brand-light">pos</span></span></div>
         <div className="loading-spinner" />
         <p>Opening your local shop…</p>
         <small>Your catalog stays on this device.</small>
@@ -1384,7 +1385,7 @@ export function PosShell() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-lockup">
-          <span className="brand-mark">k<span>.</span></span>
+          <KokanMark className="brand-mark" />
           <span className="brand-name">kokan<span>pos</span></span>
         </div>
         <div className="shop-switcher">
@@ -1437,7 +1438,7 @@ export function PosShell() {
 
       <main className="main-content">
         <header className="topbar">
-          <div className="mobile-brand-lockup"><span className="brand-mark">k<span>.</span></span><span>kokan<span>pos</span></span></div>
+          <div className="mobile-brand-lockup"><KokanMark className="brand-mark" /><span>kokan<span>pos</span></span></div>
           <div className="topbar-title">
             <span className="eyebrow">{title.eyebrow}</span>
             <h1>{title.title}</h1>
@@ -1788,7 +1789,7 @@ function StaffSignInScreen({
   return (
     <main className="staff-login-screen">
       <section className="staff-login-card">
-        <div className="developer-brand"><span className="developer-brand-mark"><Store size={23} /></span><span><strong>Kokan POS</strong><small>STAFF CHECK-IN</small></span></div>
+        <div className="developer-brand"><KokanMark className="developer-brand-mark" /><span><strong>Kokan POS</strong><small>STAFF CHECK-IN</small></span></div>
         <span className="section-eyebrow">WELCOME TO YOUR SHIFT</span>
         <h1>{shopName}</h1>
         <p>Enter your name and personal PIN. We’ll record your clock-in on this device.</p>

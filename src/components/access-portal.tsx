@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { ArrowRight, CircleAlert, KeyRound, LockKeyhole, ShieldCheck, Store, WifiOff } from "lucide-react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
+import { KokanMark } from "@/components/kokan-mark";
 import { platformApiErrorMessage, type AccountAccess } from "@/lib/supabase";
 
 interface AccessPortalProps {
@@ -126,7 +127,7 @@ export function AccessPortal({
     <main className="access-screen">
       <section className="access-card">
         <div className="access-brand">
-          <span className="brand-mark">k<span>.</span></span>
+          <KokanMark className="brand-mark" />
           <span className="brand-name">kokan<span>pos</span></span>
         </div>
         <div className="access-heading">

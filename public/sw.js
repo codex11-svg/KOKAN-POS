@@ -1,4 +1,4 @@
-const CACHE_NAME = "kokan-pos-shell-v3";
+const CACHE_NAME = "kokan-pos-shell-v4";
 const PRECACHE_URLS = ["/", "/manifest.json", "/icon.svg", "/offline.html"];
 
 self.addEventListener("install", (event) => {

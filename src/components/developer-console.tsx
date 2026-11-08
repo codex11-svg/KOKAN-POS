@@ -22,6 +22,7 @@ import {
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
+import { KokanMark } from "@/components/kokan-mark";
 import { getSupabaseClient, platformApiErrorMessage, type PlatformDashboard, type PlatformFeature, type PlatformStore, type SignupRequest } from "@/lib/supabase";
 import { csvCell, formatDateTime, formatMoney } from "@/lib/format";
 
@@ -381,7 +382,7 @@ export function DeveloperConsole() {
     return (
       <main className="developer-login-screen">
         <section className="developer-login-card">
-          <div className="developer-brand"><span className="developer-brand-mark"><ShieldCheck size={23} /></span><span><strong>Kokan POS</strong><small>PLATFORM ADMIN</small></span></div>
+          <div className="developer-brand"><KokanMark className="developer-brand-mark" /><span><strong>Kokan POS</strong><small>PLATFORM ADMIN</small></span></div>
           <span className="section-eyebrow">RESTRICTED ACCESS</span>
           {loading || !error ? (
             <div className="access-loading"><span className="loading-spinner" /><span>Verifying developer access…</span></div>
@@ -402,7 +403,7 @@ export function DeveloperConsole() {
     return (
       <main className="developer-login-screen">
         <section className="developer-login-card">
-          <div className="developer-brand"><span className="developer-brand-mark"><ShieldCheck size={23} /></span><span><strong>Kokan POS</strong><small>PLATFORM ADMIN</small></span></div>
+          <div className="developer-brand"><KokanMark className="developer-brand-mark" /><span><strong>Kokan POS</strong><small>PLATFORM ADMIN</small></span></div>
           <span className="section-eyebrow">RESTRICTED ACCESS</span>
           <h1>Developer sign in</h1>
           <p>Manage shop access, store status, and platform features from one secure workspace.</p>
@@ -454,7 +455,7 @@ export function DeveloperConsole() {
   return (
     <main className="developer-shell">
       <aside className="developer-sidebar">
-        <div className="developer-brand"><span className="developer-brand-mark"><ShieldCheck size={23} /></span><span><strong>Kokan POS</strong><small>PLATFORM ADMIN</small></span></div>
+        <div className="developer-brand"><KokanMark className="developer-brand-mark" /><span><strong>Kokan POS</strong><small>PLATFORM ADMIN</small></span></div>
         <div className="developer-nav-label">MANAGEMENT</div>
         <a className="developer-nav-active" href="#overview"><Store size={17} /> Store overview</a>
         <a className="developer-nav-link" href="#requests"><Clock3 size={17} /> Access requests{pendingCount > 0 && <b>{pendingCount}</b>}</a>

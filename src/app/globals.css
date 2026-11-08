@@ -141,6 +141,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 
 .cart-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
 .cart-header { display: flex; align-items: center; justify-content: space-between; padding: 19px 18px 15px; }
+.cart-header-actions { display: flex; align-items: center; gap: 5px; }
 .cart-header .eyebrow { margin-bottom: 5px; font-size: 8px; }
 .cart-header h2 { font-size: 15px; }
 .cart-header h2 span { color: #a4ada5; font-size: 10px; font-weight: 550; letter-spacing: .2px; }
@@ -152,6 +153,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .customer-select-wrap select { width: 100%; min-width: 0; height: 100%; appearance: none; border: 0; outline: 0; background: transparent; color: #54655a; font-size: 10px; cursor: pointer; }
 .customer-select-wrap > svg:last-child { pointer-events: none; }
 .cart-items-area { display: flex; min-height: 100px; flex: 1; flex-direction: column; gap: 0; overflow: auto; margin-top: 10px; padding: 0 18px; scrollbar-color: #e3e8e1 transparent; scrollbar-width: thin; }
+.parked-tickets { display: flex; flex-direction: column; gap: 5px; margin: 0 0 10px; padding: 9px; border: 1px solid #e6ece5; border-radius: 11px; background: #f8faf6; }
+.parked-tickets-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 3px; color: #78867b; font-size: 9px; }
+.parked-tickets-heading strong { color: #42584a; font-size: 10px; }
+.parked-ticket-row { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid #edf0ea; border-radius: 8px; background: #fff; color: #526357; cursor: pointer; text-align: left; }
+.parked-ticket-row:hover { border-color: #c9dbc9; background: #f4f8f2; }
+.parked-ticket-row > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.parked-ticket-row strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.parked-ticket-row small { color: #929e93; font-size: 8px; }
 .empty-cart { display: flex; min-height: 190px; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #a0aaa2; text-align: center; }
 .empty-cart-icon { display: grid; width: 48px; height: 48px; margin-bottom: 4px; place-items: center; border: 1px solid #e9eee6; border-radius: 16px; background: #f7faf5; color: #8aa38e; }
 .empty-cart > strong { color: #58695e; font-size: 12px; font-weight: 700; }

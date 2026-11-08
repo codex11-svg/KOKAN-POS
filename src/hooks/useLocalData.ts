@@ -9,6 +9,7 @@ import {
   type FeatureFlag,
   type Invoice,
   type OperationsRecord,
+  type ParkedCart,
   type Product,
   type ShopProfile,
   type StaffMember,
@@ -24,9 +25,10 @@ export interface LocalSnapshot {
   staff: StaffMember[];
   shifts: StaffShift[];
   operations: OperationsRecord[];
+  parkedCarts: ParkedCart[];
 }
 
-const emptySnapshot: LocalSnapshot = { shop: null, products: [], customers: [], invoices: [], flags: [], staff: [], shifts: [], operations: [] };
+const emptySnapshot: LocalSnapshot = { shop: null, products: [], customers: [], invoices: [], flags: [], staff: [], shifts: [], operations: [], parkedCarts: [] };
 
 export function useLocalData(
   enabled: boolean,
@@ -56,7 +58,7 @@ export function useLocalData(
         if (!active) return;
         const db = localDb;
         const subscription = liveQuery(async () => {
-          const [shop, products, customers, invoices, flags, staff, shifts, operations] = await Promise.all([
+          const [shop, products, customers, invoices, flags, staff, shifts, operations, parkedCarts] = await Promise.all([
             db.shop_profile.get("current_shop"),
             db.products.orderBy("name").toArray(),
             db.customers.orderBy("name").toArray(),
@@ -65,8 +67,9 @@ export function useLocalData(
             db.staff.toArray(),
             db.staff_shifts.orderBy("startedAt").reverse().toArray(),
             db.operations.orderBy("createdAt").reverse().toArray(),
+            db.parked_carts.orderBy("updatedAt").reverse().toArray(),
           ]);
-          return { shop: shop ?? null, products, customers, invoices, flags, staff, shifts, operations } satisfies LocalSnapshot;
+          return { shop: shop ?? null, products, customers, invoices, flags, staff, shifts, operations, parkedCarts } satisfies LocalSnapshot;
         }).subscribe({
           next: (nextSnapshot) => {
             if (!active) return;

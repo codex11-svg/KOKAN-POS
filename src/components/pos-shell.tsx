@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  Archive,
   ArrowDownRight,
   ArrowUpRight,
   BarChart3,
@@ -71,6 +72,7 @@ import {
   type InvoiceItem,
   type OperationsPayload,
   type OperationsRecord,
+  type ParkedCart,
   type PaymentMode,
   type Product,
   type ShopProfile,
@@ -234,7 +236,7 @@ export function PosShell() {
       : undefined,
     [activeArea, activeOwnerName, activePhone, activeStoreId, activeStoreName],
   );
-  const { shop, products, customers, invoices, flags, staff, shifts, operations, ready, error } = useLocalData(
+  const { shop, products, customers, invoices, flags, staff, shifts, operations, parkedCarts, ready, error } = useLocalData(
     activeStoreId !== null,
     activeStoreId,
     initialShop,
@@ -360,6 +362,58 @@ export function PosShell() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3200);
   }, []);
+
+  const parkCurrentCart = useCallback(async () => {
+    if (cart.items.length === 0) return;
+    const now = Date.now();
+    const customerName = customers.find((customer) => customer.id === cart.customerId)?.name;
+    const parked: ParkedCart = {
+      id: createId(),
+      label: customerName || `Ticket · ${new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit" }).format(now)}`,
+      cart: { ...cart, id: ACTIVE_CART_ID, updatedAt: now },
+      createdAt: now,
+      updatedAt: now,
+    };
+    const clearedCart: ActiveCart = { id: ACTIVE_CART_ID, items: [], customerId: null, discount: 0, updatedAt: now };
+    try {
+      await localDb.transaction("rw", [localDb.parked_carts, localDb.active_cart], async () => {
+        await localDb.parked_carts.add(parked);
+        await localDb.active_cart.put(clearedCart);
+      });
+      setCart(clearedCart);
+      setMobileCartOpen(false);
+      showToast("Ticket parked. You can pick it up any time.");
+    } catch (parkError) {
+      showToast(parkError instanceof Error ? `Ticket could not be parked: ${parkError.message}` : "Ticket could not be parked.", "error");
+    }
+  }, [cart, customers, showToast]);
+
+  const resumeParkedCart = useCallback(async (parked: ParkedCart) => {
+    const now = Date.now();
+    const currentParked: ParkedCart | null = cart.items.length > 0
+      ? {
+          id: createId(),
+          label: customers.find((customer) => customer.id === cart.customerId)?.name
+            || `Ticket · ${new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit" }).format(now)}`,
+          cart: { ...cart, id: ACTIVE_CART_ID, updatedAt: now },
+          createdAt: now,
+          updatedAt: now,
+        }
+      : null;
+    const resumedCart: ActiveCart = { ...parked.cart, id: ACTIVE_CART_ID, updatedAt: now };
+    try {
+      await localDb.transaction("rw", [localDb.parked_carts, localDb.active_cart], async () => {
+        if (currentParked) await localDb.parked_carts.add(currentParked);
+        await localDb.parked_carts.delete(parked.id);
+        await localDb.active_cart.put(resumedCart);
+      });
+      setCart(resumedCart);
+      setMobileCartOpen(true);
+      showToast(currentParked ? "Ticket switched. Your previous ticket was parked." : "Parked ticket restored.");
+    } catch (resumeError) {
+      showToast(resumeError instanceof Error ? `Ticket could not be restored: ${resumeError.message}` : "Ticket could not be restored.", "error");
+    }
+  }, [cart, customers, showToast]);
 
   const signInStaff = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -569,6 +623,17 @@ export function PosShell() {
   );
   const cartTotal = Math.max(0, cartSubtotal - cart.discount);
   const cartQuantity = cart.items.reduce((sum, line) => sum + line.quantity, 0);
+  const parkedCartSummaries = useMemo(
+    () => parkedCarts.map((parked) => ({
+      ...parked,
+      total: Math.max(0, parked.cart.items.reduce((sum, line) => {
+        const product = products.find((item) => item.id === line.productId);
+        return sum + (product?.sellingPrice ?? 0) * line.quantity;
+      }, 0) - parked.cart.discount),
+      quantity: parked.cart.items.reduce((sum, line) => sum + line.quantity, 0),
+    })),
+    [parkedCarts, products],
+  );
   const flagEnabled = (key: string) =>
     (flags.find((flag) => flag.key === key)?.enabled ??
       featureFallbacks.find((flag) => flag.key === key)?.enabled ??
@@ -1533,15 +1598,29 @@ export function PosShell() {
               <aside className={`cart-panel${mobileCartOpen ? " cart-panel-mobile-open" : ""}`}>
                 <div className="cart-header">
                   <div><span className="eyebrow">CURRENT SALE</span><h2>New ticket <span>#{String(invoices.length + 1).padStart(4, "0")}</span></h2></div>
-                  <button className="cart-more-button" onClick={() => {
-                    if (mobileCartOpen) setMobileCartOpen(false);
-                    else if (cart.items.length > 0 && window.confirm("Clear this ticket?")) persistCart(emptyCart());
-                  }} aria-label={mobileCartOpen ? "Close ticket" : "Clear ticket"} title={mobileCartOpen ? "Close ticket" : "Clear ticket"}>{mobileCartOpen ? <X size={16} /> : <Trash2 size={16} />}</button>
+                  <div className="cart-header-actions">
+                    {cart.items.length > 0 && <button className="cart-more-button" onClick={() => void parkCurrentCart()} aria-label="Park current ticket" title="Park current ticket"><Archive size={16} /></button>}
+                    <button className="cart-more-button" onClick={() => {
+                      if (mobileCartOpen) setMobileCartOpen(false);
+                      else if (cart.items.length > 0 && window.confirm("Clear this ticket?")) persistCart(emptyCart());
+                    }} aria-label={mobileCartOpen ? "Close ticket" : "Clear ticket"} title={mobileCartOpen ? "Close ticket" : "Clear ticket"}>{mobileCartOpen ? <X size={16} /> : <Trash2 size={16} />}</button>
+                  </div>
                 </div>
                 <label className="customer-select-label">CUSTOMER <span>OPTIONAL</span></label>
                 <div className="customer-select-wrap"><UserRound size={17} /><select value={cart.customerId ?? ""} onChange={(event) => setSelectedCustomer(event.target.value)} aria-label="Choose a customer"><option value="">Walk-in customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.currentBalance > 0 ? ` · ${formatMoney(customer.currentBalance)} due` : ""}</option>)}</select><ChevronDown size={15} /></div>
 
                 <div className="cart-items-area">
+                  {parkedCartSummaries.length > 0 && (
+                    <section className="parked-tickets" aria-label="Parked tickets">
+                      <div className="parked-tickets-heading"><strong>Parked tickets</strong><span>{parkedCartSummaries.length} waiting</span></div>
+                      {parkedCartSummaries.map((parked) => (
+                        <button className="parked-ticket-row" key={parked.id} onClick={() => void resumeParkedCart(parked)}>
+                          <span><strong>{parked.label}</strong><small>{parked.quantity} {parked.quantity === 1 ? "item" : "items"}</small></span>
+                          <strong>{formatMoney(parked.total)}</strong>
+                        </button>
+                      ))}
+                    </section>
+                  )}
                   {cart.items.length === 0 ? (
                     <div className="empty-cart">
                       <div className="empty-cart-icon"><ShoppingCart size={22} /></div>

@@ -23,7 +23,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { KokanMark } from "@/components/kokan-mark";
-import { getSupabaseClient, platformApiErrorMessage, type PlatformDashboard, type PlatformFeature, type PlatformStore, type SignupRequest } from "@/lib/supabase";
+import { getSupabaseClient, platformApiErrorMessage, type PlatformDashboard, type PlatformFeature, type PlatformStore, type PlatformSupportWorkspace, type SignupRequest } from "@/lib/supabase";
 import { csvCell, formatDateTime, formatMoney } from "@/lib/format";
 
 interface ProvisionDraft {
@@ -63,6 +63,7 @@ export function DeveloperConsole() {
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
   const [bulkFeatureKey, setBulkFeatureKey] = useState("");
   const [supportNoteDrafts, setSupportNoteDrafts] = useState<Record<string, string>>({});
+  const [supportWorkspace, setSupportWorkspace] = useState<PlatformSupportWorkspace | null>(null);
   const [auditSearch, setAuditSearch] = useState("");
   const [auditActionFilter, setAuditActionFilter] = useState("all");
   const [draft, setDraft] = useState<ProvisionDraft>(emptyProvisionDraft);
@@ -157,7 +158,12 @@ export function DeveloperConsole() {
     }
   };
 
-  const runAction = async (key: string, action: string, payload: Record<string, unknown> = {}) => {
+  const runAction = async (
+    key: string,
+    action: string,
+    payload: Record<string, unknown> = {},
+    successNotice = "Changes saved.",
+  ) => {
     if (!supabase) return null;
     setError("");
     setNotice("");
@@ -168,7 +174,7 @@ export function DeveloperConsole() {
       if (data?.error) throw new Error(String(data.error));
       setNotice(typeof data?.auditWarning === "string" && data.auditWarning
         ? `Changes saved, but the audit entry could not be recorded: ${data.auditWarning}`
-        : "Changes saved.");
+        : successNotice);
       return data;
     } catch (actionError) {
       setError(await platformApiErrorMessage(actionError, "The requested change could not be saved."));
@@ -292,6 +298,41 @@ export function DeveloperConsole() {
       supportNotes: [result.supportNote, ...(current.supportNotes ?? [])],
     }));
     setSupportNoteDrafts((current) => ({ ...current, [storeId]: "" }));
+  };
+
+  const resetOwnerPin = (store: PlatformStore) => {
+    if (!window.confirm(`Reset the local owner PIN for ${store.name}? Share the replacement PIN with the verified owner through a trusted channel.`)) return;
+    void (async () => {
+      const replacementPin = generateStorePin();
+      const result = await runAction(`owner-pin:${store.id}`, "reset_owner_pin", {
+        storeId: store.id,
+        ownerPin: replacementPin,
+      });
+      if (!result) return;
+      setOwnerPin(replacementPin);
+      setNotice(`Owner PIN reset for ${store.name}. Share the new PIN through a trusted channel.${typeof result.auditWarning === "string" && result.auditWarning ? ` Audit warning: ${result.auditWarning}` : ""}`);
+    })();
+  };
+
+  const sendOwnerRecovery = (store: PlatformStore) => {
+    if (!window.confirm(`Send a password recovery email to the owner account linked to ${store.name}?`)) return;
+    void runAction(
+      `owner-recovery:${store.id}`,
+      "send_owner_recovery",
+      { storeId: store.id },
+      "A password recovery email was requested for the linked owner account.",
+    );
+  };
+
+  const openSupportWorkspace = async (store: PlatformStore) => {
+    setSupportWorkspace(null);
+    const result = await runAction(
+      `support-workspace:${store.id}`,
+      "get_store_support_workspace",
+      { storeId: store.id },
+      "Store support workspace loaded.",
+    );
+    if (result?.storeId === store.id) setSupportWorkspace(result as PlatformSupportWorkspace);
   };
 
   const toggleFeature = (store: PlatformStore, feature: PlatformFeature) => {
@@ -558,6 +599,42 @@ export function DeveloperConsole() {
                       <label className="sr-only" htmlFor={`support-note-${store.id}`}>Add a private support note for {store.name}</label>
                       <textarea id={`support-note-${store.id}`} className="form-input developer-support-input" rows={2} maxLength={2000} value={supportNoteDrafts[store.id] ?? ""} onChange={(event) => setSupportNoteDrafts((current) => ({ ...current, [store.id]: event.target.value }))} placeholder="Private note for your developer team…" />
                       <button type="button" className="button button-secondary" onClick={() => void saveSupportNote(store.id)} disabled={!supportNoteDrafts[store.id]?.trim() || Boolean(workingKey)}>Save support note</button>
+                      <div className="developer-row-actions">
+                        <button type="button" className="button button-secondary" onClick={() => void openSupportWorkspace(store)} disabled={Boolean(workingKey)}>
+                          {workingKey === `support-workspace:${store.id}` ? "Loading support context…" : "Open scoped support workspace"}
+                        </button>
+                        <button type="button" className="button button-secondary" onClick={() => sendOwnerRecovery(store)} disabled={Boolean(workingKey)}>Email password recovery</button>
+                        <button type="button" className="button button-secondary" onClick={() => resetOwnerPin(store)} disabled={Boolean(workingKey)}>Reset owner PIN</button>
+                      </div>
+                      {supportWorkspace?.storeId === store.id && (
+                        <div className="developer-support-workspace">
+                          <strong>Scoped support context</strong>
+                          <div className="developer-metric-grid">
+                            <span>Products: {supportWorkspace.counts.products}</span>
+                            <span>Customers: {supportWorkspace.counts.customers}</span>
+                            <span>Invoices: {supportWorkspace.counts.invoices}</span>
+                            <span>Staff: {supportWorkspace.counts.staff}</span>
+                            <span>Operations events: {supportWorkspace.counts.operations}</span>
+                          </div>
+                          <small>Latest invoice: {supportWorkspace.latestInvoiceAt ? formatDateTime(new Date(supportWorkspace.latestInvoiceAt).getTime()) : "None recorded"}</small>
+                          <small>Latest operations event: {supportWorkspace.latestOperationAt ? formatDateTime(new Date(supportWorkspace.latestOperationAt).getTime()) : "None recorded"}</small>
+                          <strong>Recent private support notes</strong>
+                          {supportWorkspace.supportNotes.length ? supportWorkspace.supportNotes.map((note) => (
+                            <div className="developer-support-note" key={note.id}>
+                              <span>{note.note}</span>
+                              <small>{note.author_email} · {formatDateTime(new Date(note.created_at).getTime())}</small>
+                            </div>
+                          )) : <small>No support notes recorded for this store.</small>}
+                          <strong>Recent store-specific audit activity</strong>
+                          {supportWorkspace.auditLog.length ? supportWorkspace.auditLog.map((entry) => (
+                            <details className="developer-support-note" key={entry.id}>
+                              <summary>{entry.action.replaceAll("_", " ")} · {formatDateTime(new Date(entry.created_at).getTime())}</summary>
+                              <small>{entry.developer_email}</small>
+                              <code>{JSON.stringify(entry.details)}</code>
+                            </details>
+                          )) : <small>No audit activity recorded for this store.</small>}
+                        </div>
+                      )}
                     </div>
                   </article>
                 ))}

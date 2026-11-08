@@ -165,14 +165,57 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .parked-ticket-row > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .parked-ticket-row strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .parked-ticket-row small { color: #929e93; font-size: 8px; }
+.customer-repeat-panel { margin: 8px 18px 0; overflow: hidden; border: 1px solid #e8ede6; border-radius: 9px; background: #fbfcfa; }
+.customer-repeat-toggle { display: flex; width: 100%; min-height: 34px; align-items: center; justify-content: space-between; padding: 0 9px; border: 0; background: transparent; color: #66776a; cursor: pointer; font-size: 9px; }
+.customer-repeat-toggle > span { display: flex; align-items: center; gap: 5px; font-weight: 680; }
+.customer-repeat-toggle small { color: #99a49b; font-size: 8px; }
+.customer-repeat-chevron-open { transform: rotate(180deg); }
+.customer-repeat-list { display: flex; flex-direction: column; padding: 0 8px 6px; }
+.customer-repeat-row { display: flex; min-height: 43px; align-items: center; justify-content: space-between; gap: 6px; border-top: 1px solid #edf0eb; }
+.customer-repeat-row > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.customer-repeat-row strong { color: #526357; font-size: 8px; }
+.customer-repeat-row small { color: #929e93; font-size: 7px; }
+.customer-repeat-row button { min-height: 27px; padding: 0 7px; border: 1px solid #dfe9dc; border-radius: 6px; background: #fff; color: #447050; cursor: pointer; font-size: 8px; font-weight: 700; }
+.customer-lookup { position: relative; margin: 6px 18px 0; }
+.customer-lookup-toggle { display: flex; width: 100%; min-height: 28px; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: #879389; cursor: pointer; font-size: 8px; text-align: left; }
+.customer-lookup-toggle svg:last-child { margin-left: auto; }
+.customer-lookup-list { position: absolute; z-index: 4; top: 100%; right: 0; left: 0; display: flex; max-height: 240px; flex-direction: column; overflow: auto; padding: 6px; border: 1px solid #e3eae1; border-radius: 9px; background: #fff; box-shadow: 0 9px 24px rgba(34,54,39,.15); }
+.customer-lookup-input { min-height: 34px; margin-bottom: 4px; padding: 0 8px; border: 1px solid #e6ece4; border-radius: 7px; color: #4a5b4e; font: inherit; font-size: 9px; }
+.customer-lookup-list > button { display: flex; min-height: 39px; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 6px; border: 0; border-radius: 6px; background: #fff; color: #4f6253; cursor: pointer; text-align: left; }
+.customer-lookup-list > button:hover { background: #f3f7f1; }
+.customer-lookup-list > button span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.customer-lookup-list > button strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.customer-lookup-list > button small, .customer-lookup-empty { color: #929e93; font-size: 8px; }
+.customer-lookup-empty { padding: 8px; }
+.customer-lookup-list > .customer-lookup-add { justify-content: flex-start; gap: 5px; border-top: 1px solid #eef1ec; border-radius: 0; color: #4a7952; font-weight: 700; }
+.recent-receipts-modal { width: min(520px,100%); }
+.cashier-shift-sales { display: flex; flex-direction: column; gap: 2px; padding: 5px 8px; border: 1px solid #e4ebe2; border-radius: 8px; background: #f8faf6; }
+.cashier-shift-sales span { color: #8a968c; font-size: 7px; font-weight: 750; letter-spacing: .4px; }
+.cashier-shift-sales strong { color: #3e6548; font-size: 10px; }
+.recent-receipts-button { gap: 5px; }
+.recent-receipts-button kbd { padding: 1px 3px; border: 1px solid #e1e8df; border-radius: 4px; color: #89958b; font-size: 7px; }
+.recent-receipts-list { display: flex; max-height: min(60vh,480px); flex-direction: column; overflow: auto; padding: 0 18px; }
+.recent-receipt-row { display: flex; min-height: 54px; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #edf0eb; }
+.recent-receipt-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.recent-receipt-copy strong { overflow: hidden; color: #475b4b; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.recent-receipt-copy small { color: #879389; font-size: 8px; }
+.recent-receipt-actions { display: flex; gap: 5px; }
+.recent-receipt-actions button { display: flex; min-height: 30px; align-items: center; gap: 4px; padding: 0 7px; border: 1px solid #e2e9df; border-radius: 7px; background: #fff; color: #57745b; cursor: pointer; font-size: 8px; font-weight: 700; }
+@media (max-width: 430px) { .recent-receipt-actions button { min-height: 27px; padding: 0 5px; font-size: 7px; } }
+.recent-receipt-note { margin: 0; padding: 12px 18px 4px; color: #929e93; font-size: 8px; line-height: 1.45; }
 .owner-insights-card { margin-bottom: 14px; padding-bottom: 12px; }
 .owner-insights-toolbar { gap: 12px; }
 .cash-tender-presets { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .cash-tender-preset { min-height: 31px; padding: 0 9px; border: 1px solid #e3ebe2; border-radius: 8px; background: #f7faf6; color: #54745a; cursor: pointer; font-size: 9px; font-weight: 680; }
 .cash-tender-preset:hover { border-color: #b7d0b8; background: #edf5ed; color: #315d3b; }
+.discount-editor { display: flex; flex: 1; align-items: flex-start; flex-wrap: wrap; gap: 5px; }
+.discount-presets { display: flex; gap: 3px; }
+.discount-presets button { min-height: 27px; padding: 0 6px; border: 1px solid #e8ece5; border-radius: 6px; background: #fff; color: #788579; cursor: pointer; font-size: 8px; }
+.discount-presets button:hover { border-color: #bdd3bc; color: #42734d; }
 .owner-insights-actions { display: flex; align-items: center; gap: 7px; }
 .restock-planner { margin-bottom: 12px; }
 .restock-export { min-height: 31px; padding: 0 9px; font-size: 9px; }
+.restock-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .restock-summary { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 0 14px 10px; color: #7d897f; font-size: 9px; }
 .restock-summary strong { color: #435c49; }
 .restock-list { padding: 0 14px 10px; }

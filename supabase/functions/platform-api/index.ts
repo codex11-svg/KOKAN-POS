@@ -64,6 +64,35 @@ function isDeveloper(user: User): boolean {
   return !!user.email && allowed.includes(user.email.toLowerCase());
 }
 
+const ownerActions = new Set(["request_access", "account", "sync"]);
+const developerActions = new Set([
+  "dashboard",
+  "approve_request",
+  "reject_request",
+  "provision_owner",
+  "set_store_status",
+  "set_feature",
+  "create_support_note",
+  "reset_owner_pin",
+  "send_owner_recovery",
+  "get_store_support_workspace",
+]);
+
+async function requirePlatformStore(supabase: SupabaseClient, storeId: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(storeId)) {
+    throw new Error("A valid store ID is required.");
+  }
+  const { data, error } = await supabase.from("stores").select("id,email,owner_pin_hash").eq("id", storeId).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("The selected store no longer exists.");
+  return data;
+}
+
+async function hashOwnerPin(ownerPin: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`kokan-pos:${ownerPin}`));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 async function assertStoreOwnership(
   supabase: SupabaseClient,
   table: "products" | "customers" | "invoices" | "staff" | "staff_shifts" | "operations_events",
@@ -93,8 +122,7 @@ async function createStoreAccess(
   supabase: SupabaseClient,
   input: { userId: string; email: string; shopName: string; ownerName: string; phone: string; area: string; ownerPin: string },
 ) {
-  const pinDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`kokan-pos:${input.ownerPin}`));
-  const ownerPinHash = Array.from(new Uint8Array(pinDigest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const ownerPinHash = await hashOwnerPin(input.ownerPin);
   const { data: store, error: storeError } = await supabase
     .from("stores")
     .insert({
@@ -429,6 +457,9 @@ Deno.serve(async (request: Request) => {
     const user = await authenticatedUser(request, supabase);
     const body = await request.json() as JsonRecord;
     const action = text(body.action);
+    if (!ownerActions.has(action) && !developerActions.has(action)) {
+      return response({ error: "Unknown platform action." }, 400);
+    }
 
     if (action === "request_access") {
       const shopName = text(body.shopName);
@@ -540,6 +571,7 @@ Deno.serve(async (request: Request) => {
       const storeId = text(body.storeId);
       const status = text(body.status);
       if (!["active", "suspended"].includes(status)) return response({ error: "Invalid store status." }, 400);
+      await requirePlatformStore(supabase, storeId);
       const { error } = await supabase.from("stores").update({ status, updated_at: new Date().toISOString() }).eq("id", storeId);
       if (error) throw error;
       const auditWarning = await writeAudit(supabase, user, "set_store_status", storeId, { status });
@@ -552,6 +584,7 @@ Deno.serve(async (request: Request) => {
       if (!featureDefaults.some((feature) => feature.key === featureKey) || typeof body.enabled !== "boolean") {
         return response({ error: "Invalid store feature update." }, 400);
       }
+      await requirePlatformStore(supabase, storeId);
       const { error } = await supabase.from("store_features").upsert({
         store_id: storeId, feature_key: featureKey, enabled: body.enabled, updated_at: new Date().toISOString(),
       }, { onConflict: "store_id,feature_key" });
@@ -566,9 +599,7 @@ Deno.serve(async (request: Request) => {
       if (!storeId || note.length < 1 || note.length > 2000) {
         return response({ error: "Choose a store and enter a support note of 1–2,000 characters." }, 400);
       }
-      const { data: store, error: storeError } = await supabase.from("stores").select("id").eq("id", storeId).maybeSingle();
-      if (storeError) throw storeError;
-      if (!store) return response({ error: "The selected store no longer exists." }, 404);
+      await requirePlatformStore(supabase, storeId);
       const authorEmail = user.email ?? "unknown";
       const { data: supportNote, error } = await supabase.from("developer_store_notes")
         .insert({ store_id: storeId, note, author_email: authorEmail })
@@ -579,10 +610,88 @@ Deno.serve(async (request: Request) => {
       return response({ ok: true, supportNote, auditWarning });
     }
 
+    if (action === "reset_owner_pin") {
+      const storeId = text(body.storeId);
+      const ownerPin = text(body.ownerPin);
+      if (!/^\d{4}$/.test(ownerPin)) return response({ error: "Enter a four-digit owner PIN." }, 400);
+      const store = await requirePlatformStore(supabase, storeId);
+      const replacementHash = await hashOwnerPin(ownerPin);
+      const { data: ownerStaff, error: ownerStaffError } = await supabase.from("staff")
+        .select("id").eq("store_id", storeId).eq("role", "owner");
+      if (ownerStaffError) throw ownerStaffError;
+      const { error } = await supabase.from("stores")
+        .update({ owner_pin_hash: replacementHash, updated_at: new Date().toISOString() })
+        .eq("id", storeId);
+      if (error) throw error;
+      if (ownerStaff?.length) {
+        const { error: staffUpdateError } = await supabase.from("staff")
+          .update({ pin_hash: replacementHash, updated_at: new Date().toISOString() })
+          .eq("store_id", storeId).eq("role", "owner");
+        if (staffUpdateError) {
+          await supabase.from("stores").update({ owner_pin_hash: store.owner_pin_hash }).eq("id", storeId);
+          throw staffUpdateError;
+        }
+      }
+      const auditWarning = await writeAudit(supabase, user, "reset_owner_pin", storeId);
+      return response({ ok: true, auditWarning });
+    }
+
+    if (action === "send_owner_recovery") {
+      const storeId = text(body.storeId);
+      await requirePlatformStore(supabase, storeId);
+      const { data: membership, error: membershipError } = await supabase.from("store_memberships")
+        .select("user_id").eq("store_id", storeId).eq("role", "owner").maybeSingle();
+      if (membershipError) throw membershipError;
+      if (!membership) return response({ error: "No owner account is linked to this store." }, 404);
+      const { data: ownerData, error: ownerError } = await supabase.auth.admin.getUserById(membership.user_id);
+      if (ownerError) throw ownerError;
+      const ownerEmail = ownerData.user?.email;
+      if (!ownerEmail) return response({ error: "The linked owner account has no recovery email." }, 409);
+      const { error } = await supabase.auth.resetPasswordForEmail(ownerEmail);
+      if (error) throw error;
+      const auditWarning = await writeAudit(supabase, user, "send_owner_recovery", storeId);
+      return response({ ok: true, auditWarning });
+    }
+
+    if (action === "get_store_support_workspace") {
+      const storeId = text(body.storeId);
+      await requirePlatformStore(supabase, storeId);
+      const [products, customers, invoices, staff, operations, lastInvoice, lastOperation, notes, audit] = await Promise.all([
+        supabase.from("products").select("id", { count: "exact", head: true }).eq("store_id", storeId),
+        supabase.from("customers").select("id", { count: "exact", head: true }).eq("store_id", storeId),
+        supabase.from("invoices").select("id", { count: "exact", head: true }).eq("store_id", storeId),
+        supabase.from("staff").select("id", { count: "exact", head: true }).eq("store_id", storeId),
+        supabase.from("operations_events").select("id", { count: "exact", head: true }).eq("store_id", storeId),
+        supabase.from("invoices").select("created_at").eq("store_id", storeId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        supabase.from("operations_events").select("created_at").eq("store_id", storeId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        supabase.from("developer_store_notes").select("id,store_id,note,author_email,created_at").eq("store_id", storeId).order("created_at", { ascending: false }).limit(20),
+        supabase.from("platform_audit_log").select("id,developer_email,action,store_id,details,created_at").eq("store_id", storeId).order("created_at", { ascending: false }).limit(50),
+      ]);
+      for (const result of [products, customers, invoices, staff, operations, lastInvoice, lastOperation, notes, audit]) {
+        if (result.error) throw result.error;
+      }
+      const auditWarning = await writeAudit(supabase, user, "view_store_support_workspace", storeId);
+      return response({
+        storeId,
+        counts: {
+          products: products.count ?? 0,
+          customers: customers.count ?? 0,
+          invoices: invoices.count ?? 0,
+          staff: staff.count ?? 0,
+          operations: operations.count ?? 0,
+        },
+        latestInvoiceAt: lastInvoice.data?.created_at ?? null,
+        latestOperationAt: lastOperation.data?.created_at ?? null,
+        supportNotes: notes.data ?? [],
+        auditLog: audit.data ?? [],
+        auditWarning,
+      });
+    }
+
     return response({ error: "Unknown platform action." }, 400);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Platform request could not be completed.";
-    const status = /sign in|session is invalid/i.test(message) ? 401 : 400;
+    const status = /sign in|session is invalid/i.test(message) ? 401 : /no longer exists/i.test(message) ? 404 : 400;
     return response({ error: message }, status);
   }
 });

@@ -18,6 +18,19 @@ function exportRestock(rows: { name: string; category: string; unit: string; onH
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function exportStockCount(products: Product[]) {
+  const contents = [
+    ["Product", "Category", "Unit", "System quantity", "Counted quantity", "Variance", "Count notes"],
+    ...products.map((product) => [product.name, product.category, product.unit, product.stockQty, "", "", ""]),
+  ].map((row) => row.map(csvCell).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([`\uFEFF${contents}`], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `kokan-stock-count-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function RestockPlanner({ products, invoices, operations }: { products: Product[]; invoices: Invoice[]; operations: OperationsRecord[] }) {
   const [asOf, setAsOf] = useState<number | null>(null);
   useEffect(() => {
@@ -68,7 +81,10 @@ export function RestockPlanner({ products, invoices, operations }: { products: P
     <section className="data-card restock-planner">
       <div className="data-card-toolbar">
         <div><h3>14-day restock planner</h3><span>Suggested quantities from the last 30 days of sales and returns.</span></div>
-        <button className="button button-secondary restock-export" onClick={() => exportRestock(recommendations)} disabled={!recommendations.length}><Download size={14} /> Export plan</button>
+        <div className="restock-actions">
+          <button className="button button-secondary restock-export" onClick={() => exportStockCount(products)} disabled={!products.length}><PackageSearch size={14} /> Count sheet</button>
+          <button className="button button-secondary restock-export" onClick={() => exportRestock(recommendations)} disabled={!recommendations.length}><Download size={14} /> Export plan</button>
+        </div>
       </div>
       {recommendations.length ? (
         <>

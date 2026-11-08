@@ -20,6 +20,7 @@ import {
   CreditCard,
   Download,
   FileText,
+  History,
   Home,
   KeyRound,
   LayoutDashboard,
@@ -86,6 +87,8 @@ import { CameraScanner } from "@/components/camera-scanner";
 import { OperationsView } from "@/components/operations-view";
 import { OwnerInsights } from "@/components/owner-insights";
 import { RestockPlanner } from "@/components/restock-planner";
+import { OwnerWorkbench } from "@/components/owner-workbench";
+import { AdminMarginReview } from "@/components/admin-margin-review";
 import { OwnerPinModal } from "@/components/owner-pin-modal";
 import { AccessPortal } from "@/components/access-portal";
 import { KokanMark } from "@/components/kokan-mark";
@@ -257,6 +260,10 @@ export function PosShell() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
+  const [customerHistoryOpen, setCustomerHistoryOpen] = useState(false);
+  const [recentReceiptsOpen, setRecentReceiptsOpen] = useState(false);
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  const [customerLookup, setCustomerLookup] = useState("");
   const [discountOpen, setDiscountOpen] = useState(false);
   const [paymentMode, setPaymentMode] = useState<PaymentMode | null>(null);
   const [cashGiven, setCashGiven] = useState("");
@@ -580,6 +587,11 @@ export function PosShell() {
         searchInputRef.current?.focus();
         return;
       }
+      if (event.key === "F2" && invoices.length > 0) {
+        event.preventDefault();
+        setRecentReceiptsOpen(true);
+        return;
+      }
       if (event.key === "Enter") {
         if (buffer.length >= 4 && now - lastKeyAt < 120) {
           const barcode = buffer;
@@ -597,7 +609,7 @@ export function PosShell() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [addToCart, products]);
+  }, [addToCart, invoices.length, products]);
 
   const categories = useMemo(
     () => ["All", ...Array.from(new Set(products.map((product) => product.category))).sort()],
@@ -691,6 +703,31 @@ export function PosShell() {
 
   const setSelectedCustomer = (customerId: string) => {
     persistCart({ ...cart, customerId: customerId || null });
+  };
+
+  const repeatCustomerInvoice = (invoice: Invoice) => {
+    if (cart.items.length > 0 && !window.confirm("Replace the current ticket with this previous customer basket?")) return;
+    const restoredItems = invoice.items.flatMap((item) => {
+      const currentProduct = products.find((product) => product.id === item.productId);
+      if (!currentProduct || currentProduct.stockQty <= 0) return [];
+      return [{ productId: item.productId, quantity: Math.min(item.quantity, currentProduct.stockQty) }];
+    });
+    if (restoredItems.length === 0) {
+      showToast("None of the items from that purchase are currently available.", "error");
+      return;
+    }
+    const restoredCart: ActiveCart = {
+      id: ACTIVE_CART_ID,
+      items: restoredItems,
+      customerId: invoice.customerId,
+      discount: 0,
+      updatedAt: 0,
+    };
+    persistCart(restoredCart);
+    setCustomerHistoryOpen(false);
+    setMobileCartOpen(true);
+    const skipped = invoice.items.length - restoredItems.length;
+    showToast(skipped > 0 ? `Previous basket restored. ${skipped} unavailable item${skipped === 1 ? "" : "s"} skipped.` : "Previous customer basket restored.");
   };
 
   const requestView = (view: View) => {
@@ -911,6 +948,27 @@ export function PosShell() {
       showToast(editingProduct ? "Product updated on this device." : "Product added to your catalog.");
     } catch {
       showToast("Product could not be saved to local storage.", "error");
+    }
+  };
+
+  const updateProductSellingPrice = async (productId: string, sellingPrice: number): Promise<boolean> => {
+    if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
+      showToast("Enter a valid selling price above zero.", "error");
+      return false;
+    }
+    try {
+      await localDb.transaction("rw", [localDb.products, localDb.outbox_queue], async () => {
+        const product = await localDb.products.get(productId);
+        if (!product) throw new Error("This product is no longer in the catalog.");
+        const updatedProduct: Product = { ...product, sellingPrice, updatedAt: Date.now(), synced: 0 };
+        await localDb.products.put(updatedProduct);
+        await enqueueMutation("UPSERT_PRODUCT", updatedProduct);
+      });
+      showToast("Selling price updated on this device.");
+      return true;
+    } catch (priceError) {
+      showToast(priceError instanceof Error ? `Price update failed: ${priceError.message}` : "Price update failed.", "error");
+      return false;
     }
   };
 
@@ -1471,6 +1529,17 @@ export function PosShell() {
 
   const title = pageTitles[activeView];
   const selectedCustomer = customers.find((customer) => customer.id === cart.customerId) ?? null;
+  const selectedCustomerInvoices = selectedCustomer
+    ? invoices.filter((invoice) => invoice.customerId === selectedCustomer.id).slice(0, 3)
+    : [];
+  const signedInShift = shifts.find((shift) => shift.staffId === signedInStaff.id && shift.endedAt === null);
+  const signedInShiftInvoices = signedInShift
+    ? invoices.filter((invoice) => invoice.createdAt >= signedInShift.startedAt)
+    : [];
+  const signedInShiftSales = signedInShiftInvoices.reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+  const filteredCustomerOptions = customers.filter((customer) =>
+    `${customer.name} ${customer.phone}`.toLocaleLowerCase().includes(customerLookup.trim().toLocaleLowerCase()),
+  ).slice(0, 8);
   const syncLabel = !sync.isOnline
     ? "Working offline"
     : sync.syncing
@@ -1550,7 +1619,9 @@ export function PosShell() {
               <span>{syncLabel}</span>
             </div>
             <button className="top-icon-button" aria-label="Notifications" onClick={() => showToast("You’re all caught up.", "info")}><Bell size={18} /><span className="notification-dot" /></button>
+            {signedInShift && <span className="cashier-shift-sales" title={`Your shift: ${signedInShiftInvoices.length} tickets since ${formatDateTime(signedInShift.startedAt)}`}><span>MY SHIFT</span><strong>{formatMoney(signedInShiftSales)}</strong></span>}
             <button type="button" className="button button-secondary shift-end-button" onClick={() => void clockOutStaff()} title="Record clock-out and switch staff"><Clock3 size={15} /> End shift</button>
+            {activeView === "pos" && invoices.length > 0 && <button type="button" className="button button-secondary recent-receipts-button" onClick={() => setRecentReceiptsOpen(true)} title="Find and reprint a recent receipt (F2)"><History size={15} /><span>Receipts</span><kbd>F2</kbd></button>}
             <div className="top-avatar" title={signedInStaff.name}>{initials(signedInStaff.name)}</div>
           </div>
         </header>
@@ -1648,7 +1719,29 @@ export function PosShell() {
                   </div>
                 </div>
                 <label className="customer-select-label">CUSTOMER <span>OPTIONAL</span></label>
-                <div className="customer-select-wrap"><UserRound size={17} /><select value={cart.customerId ?? ""} onChange={(event) => setSelectedCustomer(event.target.value)} aria-label="Choose a customer"><option value="">Walk-in customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.currentBalance > 0 ? ` · ${formatMoney(customer.currentBalance)} due` : ""}</option>)}</select><ChevronDown size={15} /></div>
+                <div className="customer-select-wrap"><UserRound size={17} /><select value={cart.customerId ?? ""} onChange={(event) => { setSelectedCustomer(event.target.value); setCustomerHistoryOpen(false); }} aria-label="Choose a customer"><option value="">Walk-in customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.currentBalance > 0 ? ` · ${formatMoney(customer.currentBalance)} due` : ""}</option>)}</select><ChevronDown size={15} /></div>
+                {customers.length > 5 && <div className="customer-lookup">
+                  <button className="customer-lookup-toggle" onClick={() => setCustomerPickerOpen((open) => !open)} aria-expanded={customerPickerOpen}><Search size={13} /> Find by name or phone <ChevronDown size={12} className={customerPickerOpen ? "customer-repeat-chevron-open" : ""} /></button>
+                  {customerPickerOpen && <div className="customer-lookup-list">
+                    <input className="customer-lookup-input" value={customerLookup} onChange={(event) => setCustomerLookup(event.target.value)} placeholder="Type a name or phone…" aria-label="Search customers by name or phone" />
+                    {filteredCustomerOptions.map((customer) => <button key={customer.id} onClick={() => { setSelectedCustomer(customer.id); setCustomerPickerOpen(false); setCustomerLookup(""); setCustomerHistoryOpen(false); }}><span><strong>{customer.name}</strong><small>{customer.phone || "No phone"}{customer.currentBalance > 0 ? ` · ${formatMoney(customer.currentBalance)} due` : ""}</small></span><Plus size={13} /></button>)}
+                    {filteredCustomerOptions.length === 0 && <span className="customer-lookup-empty">No matching customer found.</span>}
+                    <button className="customer-lookup-add" onClick={() => setCustomerModalOpen(true)}><Plus size={13} /> Add a customer</button>
+                  </div>}
+                </div>}
+                {selectedCustomer && selectedCustomerInvoices.length > 0 && (
+                  <section className="customer-repeat-panel">
+                    <button className="customer-repeat-toggle" onClick={() => setCustomerHistoryOpen((open) => !open)} aria-expanded={customerHistoryOpen}>
+                      <span><History size={14} /> Recent purchases <small>{selectedCustomerInvoices.length}</small></span><ChevronDown size={14} className={customerHistoryOpen ? "customer-repeat-chevron-open" : ""} />
+                    </button>
+                    {customerHistoryOpen && <div className="customer-repeat-list">{selectedCustomerInvoices.map((invoice) => (
+                      <div className="customer-repeat-row" key={invoice.id}>
+                        <span><strong>{formatShortDate(invoice.createdAt)} · {formatMoney(invoice.totalAmount)}</strong><small>{invoice.items.length} product lines</small></span>
+                        <button onClick={() => repeatCustomerInvoice(invoice)}>Repeat basket</button>
+                      </div>
+                    ))}</div>}
+                  </section>
+                )}
 
                 <div className="cart-items-area">
                   {parkedCartSummaries.length > 0 && (
@@ -1687,7 +1780,10 @@ export function PosShell() {
                   <div className="cart-summary">
                     <div className="cart-summary-row"><span>Subtotal <small>({cartQuantity} {cartQuantity === 1 ? "item" : "items"})</small></span><strong>{formatMoney(cartSubtotal)}</strong></div>
                     <div className="discount-row">
-                      {discountOpen ? <label className="discount-input-wrap"><Tag size={14} /><span>Discount</span><input type="number" min="0" max={cartSubtotal} step="1" value={cart.discount || ""} onChange={(event) => persistCart({ ...cart, discount: Math.min(cartSubtotal, Math.max(0, Number(event.target.value) || 0)) })} placeholder="0" /><button onClick={() => { persistCart({ ...cart, discount: 0 }); setDiscountOpen(false); }} aria-label="Remove discount"><X size={13} /></button></label> : <button className="add-discount" onClick={() => setDiscountOpen(true)}><Tag size={14} /> Add discount</button>}
+                      {discountOpen ? <div className="discount-editor">
+                        <label className="discount-input-wrap"><Tag size={14} /><span>Discount</span><input type="number" min="0" max={cartSubtotal} step="1" value={cart.discount || ""} onChange={(event) => persistCart({ ...cart, discount: Math.min(cartSubtotal, Math.max(0, Number(event.target.value) || 0)) })} placeholder="0" /><button onClick={() => { persistCart({ ...cart, discount: 0 }); setDiscountOpen(false); }} aria-label="Remove discount"><X size={13} /></button></label>
+                        <div className="discount-presets" aria-label="Quick discount percentages">{[5, 10, 15, 20].map((percent) => <button type="button" key={percent} onClick={() => persistCart({ ...cart, discount: Math.round(cartSubtotal * percent / 100) })}>{percent}%</button>)}</div>
+                      </div> : <button className="add-discount" onClick={() => setDiscountOpen(true)}><Tag size={14} /> Add discount</button>}
                       {cart.discount > 0 && <strong className="discount-amount">−{formatMoney(cart.discount)}</strong>}
                     </div>
                     <div className="cart-total-row"><span>Total due</span><strong>{formatMoney(cartTotal)}</strong></div>
@@ -1708,6 +1804,12 @@ export function PosShell() {
           {activeView === "inventory" && (
             <>
             <RestockPlanner products={products} invoices={invoices} operations={operations} />
+            <AdminMarginReview
+              products={products}
+              invoices={invoices}
+              operations={operations}
+              onUpdateSellingPrice={updateProductSellingPrice}
+            />
             <InventoryView
               products={products}
               search={inventorySearch}
@@ -1729,7 +1831,11 @@ export function PosShell() {
             />
           )}
 
-          {activeView === "reports" && <ReportsView invoices={invoices} products={products} customers={customers} operations={operations} onPrint={() => window.print()} />}
+          {activeView === "reports" && <>
+            <ReportsView invoices={invoices} products={products} customers={customers} operations={operations} onPrint={() => window.print()} />
+            <OwnerInsights invoices={invoices} products={products} operations={operations} />
+            {signedInStaff.role === "owner" && activeStoreId && <OwnerWorkbench storeId={activeStoreId} products={products} invoices={invoices} operations={operations} />}
+          </>}
 
           {activeView === "operations" && (
             <OperationsView
@@ -1783,6 +1889,24 @@ export function PosShell() {
       )}
 
       {cameraOpen && <CameraScanner onDetected={handleScannedValue} onClose={() => setCameraOpen(false)} />}
+      {recentReceiptsOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setRecentReceiptsOpen(false)}>
+          <section className="modal-card recent-receipts-modal" role="dialog" aria-modal="true" aria-labelledby="recent-receipts-title">
+            <div className="modal-heading"><div><span className="eyebrow">LOCAL SALES HISTORY</span><h2 id="recent-receipts-title">Recent receipts</h2></div><button className="icon-button" onClick={() => setRecentReceiptsOpen(false)} aria-label="Close recent receipts"><X size={18} /></button></div>
+            <div className="recent-receipts-list">{invoices.slice(0, 20).map((invoice) => (
+              <article className="recent-receipt-row" key={invoice.id}>
+                <span className="recent-receipt-copy"><strong>{invoice.customerName ?? "Walk-in customer"} · {formatMoney(invoice.totalAmount)}</strong><small>{formatDateTime(invoice.createdAt)} · #{invoice.id.slice(0, 8).toUpperCase()} · {getPaymentLabel(invoice.paymentMode)}</small></span>
+                <span className="recent-receipt-actions">
+                <button type="button" onClick={() => { setRecentReceiptsOpen(false); repeatCustomerInvoice(invoice); }}><ShoppingCart size={13} /> Repeat</button>
+                <button type="button" onClick={() => void downloadReceiptPdf(invoice)} disabled={invoiceActionBusy}><Download size={13} /> PDF</button>
+                  {flagEnabled("enable_thermal_print") && <button type="button" onClick={() => void printThermalReceipt(invoice)} disabled={printerBusy}><Printer size={13} /> Print</button>}
+                </span>
+              </article>
+            ))}</div>
+            <p className="recent-receipt-note">Receipts are available from sales saved on this device. Choose a customer name to see that customer’s previous basket in checkout.</p>
+          </section>
+        </div>
+      )}
       {pinOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setPinOpen(false)}>
           <section className="modal-card pin-modal" role="dialog" aria-modal="true" aria-labelledby="pin-title">
@@ -2445,7 +2569,6 @@ function ReportsView({
           <div className="drawer-total"><span><Banknote size={15} /> Expected cash drawer</span><strong>{formatMoney(expectedCashDrawer)}</strong></div>
         </article>
       </div>
-      <OwnerInsights invoices={invoices} products={products} operations={operations} />
       <div className="reports-grid reports-bottom-grid">
         <article className="data-card popular-card">
           <div className="data-card-toolbar"><div><h3>Popular today</h3><span>Your customers’ favourites</span></div><span className="popular-badge"><Sparkles size={13} /> TODAY</span></div>

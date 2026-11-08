@@ -79,6 +79,21 @@ export interface PlatformAuditEntry {
   created_at: string;
 }
 
+export interface PlatformSupportWorkspace {
+  storeId: string;
+  counts: {
+    products: number;
+    customers: number;
+    invoices: number;
+    staff: number;
+    operations: number;
+  };
+  latestInvoiceAt: string | null;
+  latestOperationAt: string | null;
+  supportNotes: PlatformSupportNote[];
+  auditLog: PlatformAuditEntry[];
+}
+
 export interface PlatformDashboard {
   stores: PlatformStore[];
   requests: SignupRequest[];

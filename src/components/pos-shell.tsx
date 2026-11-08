@@ -41,6 +41,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   ShoppingCart,
+  Star,
   SlidersHorizontal,
   Sparkles,
   Store,
@@ -83,6 +84,8 @@ import {
 import { csvCell, formatDateTime, formatMoney, formatShortDate, startOfLocalDay } from "@/lib/format";
 import { CameraScanner } from "@/components/camera-scanner";
 import { OperationsView } from "@/components/operations-view";
+import { OwnerInsights } from "@/components/owner-insights";
+import { RestockPlanner } from "@/components/restock-planner";
 import { OwnerPinModal } from "@/components/owner-pin-modal";
 import { AccessPortal } from "@/components/access-portal";
 import { KokanMark } from "@/components/kokan-mark";
@@ -236,7 +239,7 @@ export function PosShell() {
       : undefined,
     [activeArea, activeOwnerName, activePhone, activeStoreId, activeStoreName],
   );
-  const { shop, products, customers, invoices, flags, staff, shifts, operations, parkedCarts, ready, error } = useLocalData(
+  const { shop, products, customers, invoices, flags, staff, shifts, operations, parkedCarts, favoriteProducts, ready, error } = useLocalData(
     activeStoreId !== null,
     activeStoreId,
     initialShop,
@@ -600,18 +603,31 @@ export function PosShell() {
     () => ["All", ...Array.from(new Set(products.map((product) => product.category))).sort()],
     [products],
   );
+  const favoriteProductIds = useMemo(
+    () => new Set(favoriteProducts.map((favorite) => favorite.productId)),
+    [favoriteProducts],
+  );
+  const recentProductIds = useMemo(() => {
+    const recent = new Set<string>();
+    for (const invoice of invoices.slice(0, 30)) {
+      for (const item of invoice.items) recent.add(item.productId);
+    }
+    return recent;
+  }, [invoices]);
   const filteredProducts = useMemo(() => {
     const term = search.trim().toLowerCase();
     return products.filter((product) => {
-      const matchesCategory = categoryFilter === "All" || product.category === categoryFilter;
+      const matchesCategory = categoryFilter === "All" || categoryFilter === "Favorites" || categoryFilter === "Recent" || product.category === categoryFilter;
+      const matchesFavorite = categoryFilter !== "Favorites" || favoriteProductIds.has(product.id);
+      const matchesRecent = categoryFilter !== "Recent" || recentProductIds.has(product.id);
       const matchesSearch =
         !term ||
         product.name.toLowerCase().includes(term) ||
         product.category.toLowerCase().includes(term) ||
         (product.barcode ?? "").toLowerCase().includes(term);
-      return matchesCategory && matchesSearch;
+      return matchesCategory && matchesFavorite && matchesRecent && matchesSearch;
     });
-  }, [categoryFilter, products, search]);
+  }, [categoryFilter, favoriteProductIds, products, recentProductIds, search]);
 
   const cartSubtotal = useMemo(
     () =>
@@ -622,6 +638,10 @@ export function PosShell() {
     [cart.items, products],
   );
   const cartTotal = Math.max(0, cartSubtotal - cart.discount);
+  const quickCashAmounts = useMemo(() => {
+    const amounts = [cartTotal, ...[10, 20, 50, 100, 200, 500].map((step) => Math.ceil(cartTotal / step) * step)];
+    return Array.from(new Set(amounts.filter((amount) => amount >= cartTotal))).slice(0, 4);
+  }, [cartTotal]);
   const cartQuantity = cart.items.reduce((sum, line) => sum + line.quantity, 0);
   const parkedCartSummaries = useMemo(
     () => parkedCarts.map((parked) => ({
@@ -639,6 +659,20 @@ export function PosShell() {
       featureFallbacks.find((flag) => flag.key === key)?.enabled ??
       false) &&
     activeAccess?.features[key] !== false;
+  const toggleFavoriteProduct = async (product: Product) => {
+    try {
+      const existing = await localDb.favorite_products.get(product.id);
+      if (existing) {
+        await localDb.favorite_products.delete(product.id);
+        showToast(`${product.name} removed from favorites.`, "info");
+      } else {
+        await localDb.favorite_products.put({ id: product.id, productId: product.id, createdAt: Date.now() });
+        showToast(`${product.name} added to favorites.`);
+      }
+    } catch (favoriteError) {
+      showToast(favoriteError instanceof Error ? favoriteError.message : "Favorite could not be saved on this device.", "error");
+    }
+  };
 
   const changeQuantity = (productId: string, change: number) => {
     const line = cart.items.find((item) => item.productId === productId);
@@ -884,8 +918,9 @@ export function PosShell() {
     if (!window.confirm(`Remove “${product.name}” from your catalog?`)) return;
     const updatedAt = Date.now();
     try {
-      await localDb.transaction("rw", [localDb.products, localDb.outbox_queue], async () => {
+      await localDb.transaction("rw", [localDb.products, localDb.favorite_products, localDb.outbox_queue], async () => {
         await localDb.products.delete(product.id);
+        await localDb.favorite_products.delete(product.id);
         await enqueueMutation("DELETE_PRODUCT", { id: product.id, updatedAt });
       });
       showToast(`${product.name} removed from inventory.`, "info");
@@ -1560,6 +1595,8 @@ export function PosShell() {
                     {flagEnabled("enable_camera_scan") && <button className="scan-button" onClick={() => setCameraOpen(true)}><ScanLine size={17} /><span>Scan</span></button>}
                   </div>
                   <div className="category-filters" aria-label="Filter product categories">
+                    <button className={`category-chip ${categoryFilter === "Favorites" ? "category-chip-active" : ""}`} onClick={() => setCategoryFilter("Favorites")} title="Favorite products are saved on this device"><Star size={13} />Favorites{favoriteProducts.length > 0 ? ` · ${favoriteProducts.length}` : ""}</button>
+                    <button className={`category-chip ${categoryFilter === "Recent" ? "category-chip-active" : ""}`} onClick={() => setCategoryFilter("Recent")} title="Products sold on your last 30 tickets"><Clock3 size={13} />Recent</button>
                     {categories.map((category) => (
                       <button key={category} className={`category-chip ${categoryFilter === category ? "category-chip-active" : ""}`} onClick={() => setCategoryFilter(category)}>
                         {category !== "All" && <span>{categoryStyle(category).emoji}</span>}{category}
@@ -1572,21 +1609,25 @@ export function PosShell() {
                   {filteredProducts.map((product) => {
                     const visual = categoryStyle(product.category);
                     const inCart = cart.items.find((line) => line.productId === product.id)?.quantity ?? 0;
+                    const isFavorite = favoriteProductIds.has(product.id);
                     return (
-                      <button key={product.id} className="product-card" onClick={() => addToCart(product)} disabled={product.stockQty <= 0}>
-                        <div className={`product-art product-art-${visual.color}`}>
-                          <span className="product-emoji">{visual.emoji}</span>
-                          {inCart > 0 && <span className="product-cart-count">{inCart}</span>}
-                          {product.stockQty <= 5 && product.stockQty > 0 && <span className="low-stock-pill">LOW</span>}
-                          {product.stockQty <= 0 && <span className="low-stock-pill sold-out-pill">OUT</span>}
-                        </div>
-                        <div className="product-card-copy">
-                          <span className="product-category">{product.category}</span>
-                          <strong>{product.name}</strong>
-                          <div className="product-price-row"><span>{formatMoney(product.sellingPrice)}</span><small>{product.stockQty} {product.unit}{product.stockQty === 1 ? "" : "s"}</small></div>
-                        </div>
-                        <span className="product-add-icon"><Plus size={16} /></span>
-                      </button>
+                      <article key={product.id} className="product-card">
+                        <button className="product-card-add" onClick={() => addToCart(product)} disabled={product.stockQty <= 0} aria-label={`Add ${product.name} to ticket`}>
+                          <div className={`product-art product-art-${visual.color}`}>
+                            <span className="product-emoji">{visual.emoji}</span>
+                            {inCart > 0 && <span className="product-cart-count">{inCart}</span>}
+                            {product.stockQty <= 5 && product.stockQty > 0 && <span className="low-stock-pill">LOW</span>}
+                            {product.stockQty <= 0 && <span className="low-stock-pill sold-out-pill">OUT</span>}
+                          </div>
+                          <div className="product-card-copy">
+                            <span className="product-category">{product.category}</span>
+                            <strong>{product.name}</strong>
+                            <div className="product-price-row"><span>{formatMoney(product.sellingPrice)}</span><small>{product.stockQty} {product.unit}{product.stockQty === 1 ? "" : "s"}</small></div>
+                          </div>
+                          <span className="product-add-icon"><Plus size={16} /></span>
+                        </button>
+                        <button className={`product-favorite-button${isFavorite ? " product-favorite-active" : ""}`} onClick={() => void toggleFavoriteProduct(product)} aria-label={`${isFavorite ? "Remove" : "Add"} ${product.name} ${isFavorite ? "from" : "to"} favorites`} aria-pressed={isFavorite}><Star size={16} fill={isFavorite ? "currentColor" : "none"} /></button>
+                      </article>
                     );
                   })}
                   {filteredProducts.length === 0 && <div className="empty-products"><ShoppingBag size={24} /><strong>No products found</strong><span>Try a different name or category.</span></div>}
@@ -1665,6 +1706,8 @@ export function PosShell() {
           )}
 
           {activeView === "inventory" && (
+            <>
+            <RestockPlanner products={products} invoices={invoices} operations={operations} />
             <InventoryView
               products={products}
               search={inventorySearch}
@@ -1673,6 +1716,7 @@ export function PosShell() {
               onEdit={(product) => { setEditingProduct(product); setProductModalOpen(true); }}
               onRemove={removeProduct}
             />
+            </>
           )}
 
           {activeView === "customers" && (
@@ -1773,6 +1817,9 @@ export function PosShell() {
               <div className="cash-entry">
                 <label className="form-label" htmlFor="cash-given">Cash received</label>
                 <div className="cash-input-wrap"><span>₹</span><input id="cash-given" type="number" min={cartTotal} step="1" value={cashGiven} onChange={(event) => setCashGiven(event.target.value)} autoFocus /></div>
+                <div className="cash-tender-presets" aria-label="Quick cash amounts">{quickCashAmounts.map((amount, index) => (
+                  <button type="button" key={amount} className="cash-tender-preset" onClick={() => setCashGiven(String(amount))} aria-label={`Set cash received to ${formatMoney(amount)}`}>{index === 0 ? "Exact" : formatMoney(amount)}</button>
+                ))}</div>
                 <div className="change-due-row"><span>Change due</span><strong>{formatMoney(Math.max(0, (Number(cashGiven) || 0) - cartTotal))}</strong></div>
               </div>
             )}
@@ -2398,6 +2445,7 @@ function ReportsView({
           <div className="drawer-total"><span><Banknote size={15} /> Expected cash drawer</span><strong>{formatMoney(expectedCashDrawer)}</strong></div>
         </article>
       </div>
+      <OwnerInsights invoices={invoices} products={products} operations={operations} />
       <div className="reports-grid reports-bottom-grid">
         <article className="data-card popular-card">
           <div className="data-card-toolbar"><div><h3>Popular today</h3><span>Your customers’ favourites</span></div><span className="popular-badge"><Sparkles size={13} /> TODAY</span></div>

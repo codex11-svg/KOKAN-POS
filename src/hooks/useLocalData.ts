@@ -7,6 +7,7 @@ import {
   localDb,
   type Customer,
   type FeatureFlag,
+  type FavoriteProduct,
   type Invoice,
   type OperationsRecord,
   type ParkedCart,
@@ -26,9 +27,10 @@ export interface LocalSnapshot {
   shifts: StaffShift[];
   operations: OperationsRecord[];
   parkedCarts: ParkedCart[];
+  favoriteProducts: FavoriteProduct[];
 }
 
-const emptySnapshot: LocalSnapshot = { shop: null, products: [], customers: [], invoices: [], flags: [], staff: [], shifts: [], operations: [], parkedCarts: [] };
+const emptySnapshot: LocalSnapshot = { shop: null, products: [], customers: [], invoices: [], flags: [], staff: [], shifts: [], operations: [], parkedCarts: [], favoriteProducts: [] };
 
 export function useLocalData(
   enabled: boolean,
@@ -58,7 +60,7 @@ export function useLocalData(
         if (!active) return;
         const db = localDb;
         const subscription = liveQuery(async () => {
-          const [shop, products, customers, invoices, flags, staff, shifts, operations, parkedCarts] = await Promise.all([
+          const [shop, products, customers, invoices, flags, staff, shifts, operations, parkedCarts, favoriteProducts] = await Promise.all([
             db.shop_profile.get("current_shop"),
             db.products.orderBy("name").toArray(),
             db.customers.orderBy("name").toArray(),
@@ -68,8 +70,9 @@ export function useLocalData(
             db.staff_shifts.orderBy("startedAt").reverse().toArray(),
             db.operations.orderBy("createdAt").reverse().toArray(),
             db.parked_carts.orderBy("updatedAt").reverse().toArray(),
+            db.favorite_products.toArray(),
           ]);
-          return { shop: shop ?? null, products, customers, invoices, flags, staff, shifts, operations, parkedCarts } satisfies LocalSnapshot;
+          return { shop: shop ?? null, products, customers, invoices, flags, staff, shifts, operations, parkedCarts, favoriteProducts } satisfies LocalSnapshot;
         }).subscribe({
           next: (nextSnapshot) => {
             if (!active) return;

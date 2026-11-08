@@ -150,6 +150,12 @@ export interface ParkedCart {
   updatedAt: number;
 }
 
+export interface FavoriteProduct {
+  id: string;
+  productId: string;
+  createdAt: number;
+}
+
 class KokanDatabase extends Dexie {
   shop_profile!: Table<ShopProfile, string>;
   products!: Table<Product, string>;
@@ -162,6 +168,7 @@ class KokanDatabase extends Dexie {
   staff_shifts!: Table<StaffShift, string>;
   operations!: Table<OperationsRecord, string>;
   parked_carts!: Table<ParkedCart, string>;
+  favorite_products!: Table<FavoriteProduct, string>;
 
   constructor(databaseName: string) {
     super(databaseName);
@@ -210,6 +217,20 @@ class KokanDatabase extends Dexie {
       staff_shifts: "id, staffId, staffName, startedAt, endedAt",
       operations: "id, createdAt, updatedAt",
       parked_carts: "id, createdAt, updatedAt",
+    });
+    this.version(5).stores({
+      shop_profile: "id, updatedAt",
+      products: "id, name, barcode, category, updatedAt, synced",
+      customers: "id, name, phone, updatedAt, synced",
+      invoices: "id, customerId, paymentMode, createdAt, synced",
+      outbox_queue: "id, actionType, timestamp",
+      feature_flags: "id, key, enabled",
+      staff: "id, role, active, updatedAt",
+      active_cart: "id, updatedAt",
+      staff_shifts: "id, staffId, staffName, startedAt, endedAt",
+      operations: "id, createdAt, updatedAt",
+      parked_carts: "id, createdAt, updatedAt",
+      favorite_products: "id, productId, createdAt",
     });
   }
 }
